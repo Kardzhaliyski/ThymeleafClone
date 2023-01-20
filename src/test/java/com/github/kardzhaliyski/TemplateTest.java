@@ -46,8 +46,8 @@ class TemplateTest {
         Document doc = Jsoup.parse(Path.of("src/test/resources/template.tm").toFile());
         Element element = doc.getElementsByAttribute("t:text").get(0);
         element.appendText("Malko text");
-//        System.out.println(element);
-        System.out.println(doc);
+        System.out.println(element);
+//        System.out.println(doc);
 //        System.out.println(element.attr("t:text"));
     }
 

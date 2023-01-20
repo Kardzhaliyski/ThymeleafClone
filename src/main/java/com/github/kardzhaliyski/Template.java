@@ -26,6 +26,13 @@ public class Template {
     }
 
     public void render(TemplateContext ctx, PrintWriter out) throws NoSuchFieldException, IllegalAccessException {
+        processForEach(ctx);
+        fillTextAttributes(doc, ctx, null, null);
+        out.println(doc.toString());
+        out.flush();
+    }
+
+    private void processForEach(TemplateContext ctx) throws NoSuchFieldException, IllegalAccessException {
         Elements elements = doc.getElementsByAttribute(FOREACH_ATTRIBUTE_NAME);
         for (Element element : elements) {
             String attrValue = element.attr(FOREACH_ATTRIBUTE_NAME);
@@ -45,10 +52,6 @@ public class Template {
 
             element.remove();
         }
-
-        fillTextAttributes(doc, ctx, null, null);
-        out.println(doc.toString());
-        out.flush();
     }
 
     private Collection<Object> extractCollection(TemplateContext ctx, Matcher matcher) throws NoSuchFieldException, IllegalAccessException {
