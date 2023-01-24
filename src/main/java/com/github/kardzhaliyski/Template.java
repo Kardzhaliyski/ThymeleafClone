@@ -26,14 +26,15 @@ public class Template {
     }
 
     public void render(TemplateContext ctx, PrintWriter out) throws NoSuchFieldException, IllegalAccessException {
-        processForEach(ctx);
-        fillTextAttributes(doc, ctx, null, null);
-        out.println(doc.toString());
+        Document clone = doc.clone();
+        processForEach(clone, ctx);
+        fillTextAttributes(clone, ctx, null, null);
+//        out.println(clone.toString());
         out.flush();
     }
 
-    private void processForEach(TemplateContext ctx) throws NoSuchFieldException, IllegalAccessException {
-        Elements elements = doc.getElementsByAttribute(FOREACH_ATTRIBUTE_NAME);
+    private void processForEach(Element base, TemplateContext ctx) throws NoSuchFieldException, IllegalAccessException {
+        Elements elements = base.getElementsByAttribute(FOREACH_ATTRIBUTE_NAME);
         for (Element element : elements) {
             String attrValue = element.attr(FOREACH_ATTRIBUTE_NAME);
             Matcher matcher = FOREACH_SPLIT_PATTERN.matcher(attrValue);
