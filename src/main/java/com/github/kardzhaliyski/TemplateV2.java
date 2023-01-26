@@ -1,6 +1,7 @@
 package com.github.kardzhaliyski;
 
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
@@ -11,7 +12,6 @@ import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,7 +29,7 @@ public class TemplateV2 {
     }
 
     public void render(TemplateContext ctx, PrintWriter out) throws NoSuchFieldException, IllegalAccessException {
-        Node root = doc.body();
+        Node root = doc;
         processElement(root, ctx, out);
         out.flush();
     }
@@ -40,27 +40,46 @@ public class TemplateV2 {
             if (processIfAttribute(node, ctx, ifAttr)) return;
         }
 
+        String textValue = null;
         String textAttr = node.attr(TEXT_ATTRIBUTE_NAME);
         if (!textAttr.isEmpty()) {
-            processTextAttribute(node, ctx, textAttr);
+            textValue = getPropertyValue(ctx, textAttr).toString();
         }
 
         String forEachAttr = node.attr(FOREACH_ATTRIBUTE_NAME);
-        node.removeAttr(FOREACH_ATTRIBUTE_NAME);
-        String closingTagStr = printTagLine(node, out);
-
         if (!forEachAttr.isEmpty()) {
-            processForEachAttribute(node, ctx, out, forEachAttr);
+            processForEachAttribute(node, ctx, out, forEachAttr, textValue);
         } else {
-            processChildren(node, ctx, out);
+            printOpeningTag(node, out);
+            processChildren(node, ctx, out, textValue);
+            printClosingTag(node, out);
+        }
+    }
+
+    private void printOpeningTag(Node node, PrintWriter out) {
+        out.print("<");
+        out.print(node.nodeName());
+
+        for (Attribute attribute : node.attributes()) {
+            String name = attribute.getKey();
+            if (name.equals(IF_ATTRIBUTE_NAME) ||
+                    name.equals(FOREACH_ATTRIBUTE_NAME) ||
+                    name.equals(TEXT_ATTRIBUTE_NAME)) {
+                continue;
+            }
+
+            String value = attribute.getValue();
+            out.printf(" %s=%s", name, value);
         }
 
-        addRemovedAttributes(node, ifAttr, textAttr, forEachAttr);
-        out.println(closingTagStr);
+        out.println(">");
+    }
+
+    private void printClosingTag(Node node, PrintWriter out) {
+        out.printf("</%s>%n", node.nodeName());
     }
 
     private boolean processIfAttribute(Node node, TemplateContext ctx, String ifAttr) throws NoSuchFieldException, IllegalAccessException {
-        node.removeAttr(IF_ATTRIBUTE_NAME);
         if (!isConditionTrue(ifAttr, ctx)) {
             node.remove();
             return true;
@@ -68,13 +87,7 @@ public class TemplateV2 {
         return false;
     }
 
-    private void processTextAttribute(Node node, TemplateContext ctx, String textAttr) throws NoSuchFieldException, IllegalAccessException {
-        node.removeAttr(TEXT_ATTRIBUTE_NAME);
-        Object valueObject = getPropertyValue(ctx, textAttr);
-        ((Element) node).text(valueObject.toString());
-    }
-
-    private void processForEachAttribute(Node node, TemplateContext ctx, PrintWriter out, String forEachAttr) throws NoSuchFieldException, IllegalAccessException {
+    private void processForEachAttribute(Node node, TemplateContext ctx, PrintWriter out, String forEachAttr, String textValue) throws NoSuchFieldException, IllegalAccessException {
         Matcher matcher = FOREACH_SPLIT_PATTERN.matcher(forEachAttr);
         if (!matcher.matches()) {
             throw new IllegalArgumentException("Invalid attribute value: " + forEachAttr);
@@ -85,7 +98,9 @@ public class TemplateV2 {
         Object oldValue = ctx.get(variableName);
         for (Object o : collection) {
             ctx.put(variableName, o);
-            processChildren(node, ctx, out);
+            printOpeningTag(node, out);
+            processChildren(node, ctx, out, textValue);
+            printClosingTag(node, out);
         }
 
         if (oldValue == null) {
@@ -95,37 +110,11 @@ public class TemplateV2 {
         }
     }
 
-    private static void addRemovedAttributes(Node node, String ifAttr, String textAttr, String forEachAttr) {
-        if (ifAttr != null && !ifAttr.isEmpty()) {
-            node.attr(IF_ATTRIBUTE_NAME, ifAttr);
+    private void processChildren(Node node, TemplateContext ctx, PrintWriter out, String textValue) throws NoSuchFieldException, IllegalAccessException {
+        if(node.childNodeSize() == 0 && textValue != null) {
+            out.println(textValue);
         }
 
-        if (forEachAttr != null && !forEachAttr.isEmpty()) {
-            node.attr(FOREACH_ATTRIBUTE_NAME, forEachAttr);
-        }
-
-        if (textAttr != null && !textAttr.isEmpty()) {
-            node.attr(TEXT_ATTRIBUTE_NAME, textAttr);
-        }
-    }
-
-    private static String printTagLine(Node node, PrintWriter out) {
-        List<Node> childNodes = node.childNodes();
-        for (Node cn : childNodes) {
-            cn.remove();
-        }
-
-        String elemStr = node.toString();
-        int i = elemStr.indexOf("</");
-        String openingTagStr = elemStr.substring(0, i);
-        out.println(openingTagStr);
-        String closingTagStr = elemStr.substring(i);
-
-        ((Element) node).appendChildren(childNodes);
-        return closingTagStr;
-    }
-
-    private void processChildren(Node node, TemplateContext ctx, PrintWriter out) throws NoSuchFieldException, IllegalAccessException {
         for (Node childNode : node.childNodes()) {
             if (childNode instanceof Element) {
                 processElement(childNode, ctx, out);
@@ -133,21 +122,34 @@ public class TemplateV2 {
             }
 
             String str = childNode.toString();
-            if (!str.isBlank()) {
+            if (str.isBlank()) {
+                continue;
+            }
+
+//            out.println(textValue != null ? textValue : str.trim());
+            if(textValue != null) {
+                out.println(textValue);
+            } else {
                 out.println(str.trim());
             }
         }
     }
 
     private boolean isConditionTrue(String attrValue, TemplateContext ctx) throws NoSuchFieldException, IllegalAccessException {
-        Object valueObject = null;
+        if (attrValue.equalsIgnoreCase("false")) {
+            return false;
+        } else if (attrValue.equalsIgnoreCase("true")) {
+            return true;
+        }
+
+        Object valueObject = attrValue;
         try {
             valueObject = getPropertyValue(ctx, attrValue);
         } catch (IllegalArgumentException ignored) {
         }
 
         if (valueObject == null) {
-            valueObject = attrValue;
+            return false;
         }
 
         if (valueObject instanceof String value) {
@@ -156,6 +158,7 @@ public class TemplateV2 {
                     value.equalsIgnoreCase("no")) {
                 return false;
             }
+
             return true;
         }
 
