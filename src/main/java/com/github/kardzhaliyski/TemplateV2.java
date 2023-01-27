@@ -36,23 +36,14 @@ public class TemplateV2 {
 
     private void processElement(Node node, TemplateContext ctx, PrintWriter out) throws NoSuchFieldException, IllegalAccessException {
         String ifAttr = node.attr(IF_ATTRIBUTE_NAME);
-        if (!ifAttr.isEmpty()) {
-            if (processIfAttribute(node, ctx, ifAttr)) return;
-        }
-
-        String textValue = null;
-        String textAttr = node.attr(TEXT_ATTRIBUTE_NAME);
-        if (!textAttr.isEmpty()) {
-            textValue = getPropertyValue(ctx, textAttr).toString();
-        }
+        if (!ifAttr.isEmpty() && !isConditionTrue(ifAttr, ctx))
+            return;
 
         String forEachAttr = node.attr(FOREACH_ATTRIBUTE_NAME);
         if (!forEachAttr.isEmpty()) {
-            processForEachAttribute(node, ctx, out, forEachAttr, textValue);
+            processForEachAttribute(node, ctx, out, forEachAttr);
         } else {
-            printOpeningTag(node, out);
-            processChildren(node, ctx, out, textValue);
-            printClosingTag(node, out);
+            renderNode(node, ctx, out);
         }
     }
 
@@ -79,15 +70,7 @@ public class TemplateV2 {
         out.printf("</%s>%n", node.nodeName());
     }
 
-    private boolean processIfAttribute(Node node, TemplateContext ctx, String ifAttr) throws NoSuchFieldException, IllegalAccessException {
-        if (!isConditionTrue(ifAttr, ctx)) {
-            node.remove();
-            return true;
-        }
-        return false;
-    }
-
-    private void processForEachAttribute(Node node, TemplateContext ctx, PrintWriter out, String forEachAttr, String textValue) throws NoSuchFieldException, IllegalAccessException {
+    private void processForEachAttribute(Node node, TemplateContext ctx, PrintWriter out, String forEachAttr) throws NoSuchFieldException, IllegalAccessException {
         Matcher matcher = FOREACH_SPLIT_PATTERN.matcher(forEachAttr);
         if (!matcher.matches()) {
             throw new IllegalArgumentException("Invalid attribute value: " + forEachAttr);
@@ -98,9 +81,7 @@ public class TemplateV2 {
         Object oldValue = ctx.get(variableName);
         for (Object o : collection) {
             ctx.put(variableName, o);
-            printOpeningTag(node, out);
-            processChildren(node, ctx, out, textValue);
-            printClosingTag(node, out);
+            renderNode(node, ctx, out);
         }
 
         if (oldValue == null) {
@@ -110,9 +91,14 @@ public class TemplateV2 {
         }
     }
 
-    private void processChildren(Node node, TemplateContext ctx, PrintWriter out, String textValue) throws NoSuchFieldException, IllegalAccessException {
-        if(node.childNodeSize() == 0 && textValue != null) {
+    private void renderNode(Node node, TemplateContext ctx, PrintWriter out) throws NoSuchFieldException, IllegalAccessException {
+        printOpeningTag(node, out);
+        String textAttr = node.attr(TEXT_ATTRIBUTE_NAME);
+        if (!textAttr.isEmpty()) {
+            String textValue = getPropertyValue(ctx, textAttr).toString();
             out.println(textValue);
+            printClosingTag(node, out);
+            return;
         }
 
         for (Node childNode : node.childNodes()) {
@@ -126,13 +112,10 @@ public class TemplateV2 {
                 continue;
             }
 
-//            out.println(textValue != null ? textValue : str.trim());
-            if(textValue != null) {
-                out.println(textValue);
-            } else {
-                out.println(str.trim());
-            }
+            out.println(str.trim());
         }
+
+        printClosingTag(node, out);
     }
 
     private boolean isConditionTrue(String attrValue, TemplateContext ctx) throws NoSuchFieldException, IllegalAccessException {
@@ -178,13 +161,13 @@ public class TemplateV2 {
     private Object getPropertyValue(TemplateContext ctx, String attrValue) throws NoSuchFieldException, IllegalAccessException {
         Matcher matcher = TEXT_SPLIT_PATTERN.matcher(attrValue);
         if (!matcher.matches()) {
-            throw new IllegalArgumentException("Invalid attribute value: " + attrValue);
+            return attrValue;
         }
 
         String key = matcher.group(1);
         Object valueObject = ctx.get(key);
         if (valueObject == null) {
-            throw new IllegalStateException("No property with name: " + key);
+            throw new IllegalStateException("No property with name in context: " + key);
         }
 
         for (int i = 2; i <= matcher.groupCount(); i++) {
@@ -224,8 +207,7 @@ public class TemplateV2 {
             valueObject = getFieldValue(valueObject, fieldName);
         }
 
-        Collection<Object> collection = getCollection(valueObject);
-        return collection;
+        return getCollection(valueObject);
     }
 
     private Collection<Object> getCollection(Object obj) {
